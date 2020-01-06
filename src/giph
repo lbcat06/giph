@@ -39,7 +39,7 @@ OPTIONS
   -t,  --timer=TIMEDURATION   Time of the recording. (e.g. 10 for 10 seconds or 1:30 for 1 minute 30 seconds)
   -f,  --framerate=INT        Set the framerate.
   -y,  --notify               Send notification on error or success.
-  -e,  --encoding             Set file encoding to use (e.g. gif, mp4)
+  -e,  --encoding             Set file encoding to use (supported: gif, mp4, webm, avi)
 
 SLOP OPTIONS
   -b, --bordersize=FLOAT                Set the selection border thickness.
@@ -293,12 +293,16 @@ stop_recording_handler_cli() {
 encode_ffmpeg() {
   if [ -z "$ENCODING" ]; then
     ENCODING=mp4
-  fi
-  if [ "$ENCODING" = gif ]; then
+    encode_mp4_ffmpeg
+  elif [ "$ENCODING" = gif ]; then
     encode_gif_ffmpeg
   elif [ "$ENCODING" = mp4 ]; then
     encode_mp4_ffmpeg
-  fi
+  elif [ "$ENCODING" = webm ]; then
+    encode_webm_ffmpeg
+  elif [ "$ENCODING" = avi ]; then
+    encode_avi_ffmpeg
+  fi   
 }
 
 encode_gif_ffmpeg() {
@@ -320,6 +324,20 @@ encode_mp4_ffmpeg() {
   ffmpeg_encode_mp4="ffmpeg -i $TEMP_DIRECTORY/recording.mkv -codec copy $TEMP_DIRECTORY/encoded.mp4"
   [ "$VERBOSITY" = "1" ] && ${ffmpeg_encode_mp4} || ${ffmpeg_encode_mp4} >/dev/null 2>&1
   [ $? = 1 ] && log_error "could not encode mp4 from video"
+}
+
+encode_webm_ffmpeg() {
+  log "encoding webm using ffmpeg encoder"
+  ffmpeg_encode_webm="ffmpeg -i $TEMP_DIRECTORY/recording.mkv -f webm -vcodec libvpx -acodec libvorbis $TEMP_DIRECTORY/encoded.webm"
+  [ "$VERBOSITY" = "1" ] && ${ffmpeg_encode_webm} || ${ffmpeg_encode_webm} >/dev/null 2>&1
+  [ $? = 1 ] && log_error "could not encode webm from video"
+}
+
+encode_avi_ffmpeg() {
+  log "encoding webm using ffmpeg encoder"
+  ffmpeg_encode_avi="ffmpeg -i $TEMP_DIRECTORY/recording.mkv $TEMP_DIRECTORY/encoded.avi"
+  [ "$VERBOSITY" = "1" ] && ${ffmpeg_encode_avi} || ${ffmpeg_encode_avi} >/dev/null 2>&1
+  [ $? = 1 ] && log_error "could not encode avi from video"
 }
 
 deliver_final() {
