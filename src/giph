@@ -1,23 +1,25 @@
-#!/bin/bash
+#!/bin/sh
 
 stty -echoctl # don't print ^C when pressing ctrl+c
 
 readonly VERSION=1.0
 
-# verbosity
+# verbosity -1 = show none
+# verbosity 0 = only logs
+# verbosity 1 = show all
 VERBOSITY=0
 
 # options
 SLOP=0
 DELAY=0
-FRAMERATE=15
+FRAMERATE=30
 
-function print_version() {
+print_version() {
   echo $VERSION
   exit 0
 }
 
-function print_help() {
+print_help() {
   cat << EOF
 SYNOPSIS
     giph [OPTIONS] [FILENAME]
@@ -37,6 +39,7 @@ OPTIONS
   -t,  --timer=TIMEDURATION   Time of the recording. (e.g. 10 for 10 seconds or 1:30 for 1 minute 30 seconds)
   -f,  --framerate=INT        Set the framerate.
   -y,  --notify               Send notification on error or success.
+  -e,  --encoding             Set file encoding to use (e.g. gif, mp4)
 
 SLOP OPTIONS
   -b, --bordersize=FLOAT                Set the selection border thickness.
@@ -53,130 +56,35 @@ EOF
   exit 0
 }
 
-# log a message - (message:string, verbosity:int, timestamp:bool, stop_execution:bool, no_trailing_newline:bool)
-function log() {
-  [ "${2:-1}" -gt "$VERBOSITY" ] && return 0
-
-  log=(echo -e)
-  [ "$5" = true ] && log+=(-n)
-  [ "$3" = true ] && log+=("\033[0;37m$(date '+%Y-%m-%d %H:%M:%S'):\033[0m")
-  log+=("$1")
-  "${log[@]}"
-
-  [ "$4" = true ] && exit 1
-}
-
-function log_error() {
-  notify "$1" "critical"
-  log "\033[0;31mERROR:\033[0m $1" -1 "${2:-true}" true
-}
-
-function log_warning() {
-  log "\033[0;33mWARNING:\033[0m $1" 0 "${2:-true}"
-}
-
-function log_success() {
-  notify "$1" "normal"
-  log "\033[0;32mSUCCESS:\033[0m $1" 0 "${2:-true}"
-}
-
-function log_info() {
-  log "\033[0;36mINFO:\033[0m $1" 0 "${2:-true}"
-}
-
-function notify() {
-  [ "$NOTIFY" = 1 ] && {
-    notify=(notify-send -t 3000)
-    notify+=(-u "$2")
-    notify+=("giph" "$1")
-    "${notify[@]}"
-  }
-}
-
 if [ -z "$1" ]; then
   print_help
 fi
 
 # flag handling
-while [[ "$1" == -* ]]; do
+while [ "$1" ]; do
   case "$1" in
-  -h|--help)
-    print_help
-    ;;
-  --version)
-    print_version
-    ;;
-  -v*)
-    (( VERBOSITY += ${#1} - 1 ))
-    ;;
-  --verbose)
-    (( VERBOSITY++ ))
-    ;;
-  --quiet)
-    VERBOSITY=-1
-    ;;
-  -s|--select)
-    SLOP=1
-    ;;
-  -g|--geometry)
-    shift
-    GEOMETRY="$1"
-    ;;
-  -w|--window)
-    shift
-    WINDOW="$1"
-    ;;
-  -d|--delay)
-    shift
-    DELAY="$1"
-    ;;
-  -t|--timer)
-    shift
-    TIMER="$1"
-    ;;
-  -f|--framerate)
-    shift
-    FRAMERATE="$1"
-    ;;
-  -y|--notify)
-    NOTIFY=1
-    ;;
-  -b|--bordersize)
-    shift
-    SLOP_BORDERSIZE="$1"
-    ;;
-  -p|--padding)
-    shift
-    SLOP_PADDING="$1"
-    ;;
-  -to|--tolerance)
-    shift
-    SLOP_TOLERANCE="$1"
-    ;;
-  -c|--color)
-    shift
-    SLOP_COLOR="$1"
-    ;;
-  -r|--shader)
-    shift
-    SLOP_SHADER="$1"
-    ;;
-  -n|--nodecorations)
-    shift
-    SLOP_NODECORATIONS="$1"
-    ;;
-  -l|--highlight)
-    SLOP_HIGHLIGHT=true
-    ;;
-  -k|--nokeyboard)
-    SLOP_NOKEYBOARD=true
-    ;;
-  -o|--noopengl)
-    SLOP_NOOPENGL=true
-    ;;
-  -*)
-    log_error "option '$1' does not exist" false
-    ;;
+    -h|--help)          print_help;;
+    --version)          print_version;;
+    -v|--verbose)       shift; VERBOSITY="$1";;
+    --quiet)            VERBOSITY=-1;;
+    -s|--select)        SLOP=1;;
+    -g|--geometry)      shift; GEOMETRY="$1";;
+    -w|--window)        shift; WINDOW="$1";;
+    -d|--delay)         shift; DELAY="$1";;
+    -t|--timer)         shift; TIMER="$1";;
+    -f|--framerate)     shift; FRAMERATE="$1";;
+    -y|--notify)        NOTIFY=1;;
+    -e|--encoding)      shift; ENCODING="$1";;    
+    -b|--bordersize)    shift; SLOP_BORDERSIZE="$1";;
+    -p|--padding)       shift; SLOP_PADDING="$1";;
+    -to|--tolerance)    shift; SLOP_TOLERANCE="$1";;
+    -c|--color)         shift; SLOP_COLOR="$1";;
+    -r|--shader)        shift; SLOP_SHADER="$1";;
+    -n|--nodecorations) shift; SLOP_NODECORATIONS="$1";;
+    -l|--highlight)     SLOP_HIGHLIGHT=true;;
+    -k|--nokeyboard)    SLOP_NOKEYBOARD=true;;
+    -o|--noopengl)      SLOP_NOOPENGL=true;;
+    -*)                 log_error "option '$1' does not exist" false;;
   esac
   shift
 done
@@ -184,41 +92,77 @@ done
 # set verbosity to -1 if the file should be printed to stdout
 [ -n "$1" ] && OUTPUT_FILE=$1 || VERBOSITY=-1
 
-function get_geometry() {
+notify() {
+  gdbus call -e -d "org.freedesktop.Notifications" \
+    -o /org/freedesktop/Notifications \
+    -m org.freedesktop.Notifications.Notify "" \
+    $1 "" "$2" "$3" "[]" "{}" 2000 >/dev/null
+}
+
+log() {
+  [ "$VERBOSITY" = "-1" ] && return
+
+  log="\033[0;37m$(date '+%Y-%m-%d %H:%M:%S'):\033[0m $1"
+
+  case "$(readlink /bin/sh)" in
+    *bash) echo -e "$log";;
+    *)     echo    "$log";;
+  esac
+}
+
+log_error() {
+  notify 13443 "$1"
+  log "\033[0;31mERROR:\033[0m $1" -1 "${2:-true}"
+}
+
+log_warning() {
+  log "\033[0;33mWARNING:\033[0m $1" 0 "${2:-true}"
+}
+
+log_success() {
+  notify 13443 "$1"
+  log "\033[0;32mSUCCESS:\033[0m $1" 0 "${2:-true}"
+}
+
+log_info() {
+  log "\033[0;36mINFO:\033[0m $1" 0 "${2:-true}"
+}
+
+get_geometry() {
   if [ $SLOP = 1 ]; then
-    log "using slop to determine recording geometry" 1 true
+    log "using slop to determine recording geometry"
     get_geometry_from_slop
   elif [ -n "$GEOMETRY" ]; then
-    log "using provided geometry string" 1 true
+    log "using provided geometry string"
     get_geometry_from_string
   elif [ -n "$WINDOW" ]; then
-    log "determining geometry from provided window id" 1 true
+    log "determining geometry from provided window id"
     get_geometry_from_window_id "$WINDOW"
   else
     log_warning "no method to provide geometry given, using full desktop geometry instead"
-    log "determining desktop geometry" 1 true
+    log "determining desktop geometry"
     get_geometry_for_desktop
   fi
 
-  log "geometry string: '$GEOMETRY_STRING'" 2 true
+  log "geometry string: '$GEOMETRY_STRING'"
   parse_geometry_string
 }
 
-function get_geometry_from_slop() {
-  slop=(slop -f "%g")
-  [ -n "$SLOP_BORDERSIZE" ] && slop+=(-b "$SLOP_BORDERSIZE")
-  [ -n "$SLOP_PADDING" ] && slop+=(-p "$SLOP_PADDING")
-  [ -n "$SLOP_TOLERANCE" ] && slop+=(-t "$SLOP_TOLERANCE")
-  [ -n "$SLOP_COLOR" ] && slop+=(-c "$SLOP_COLOR")
-  [ -n "$SLOP_SHADER" ] && slop+=(-r "$SLOP_SHADER")
-  [ -n "$SLOP_NODECORATIONS" ] && slop+=(-n "$SLOP_NODECORATIONS")
-  [ -n "$SLOP_HIGHLIGHT" ] && slop+=(-l)
-  [ -n "$SLOP_NOKEYBOARD" ] && slop+=(-k)
-  [ -n "$SLOP_NOOPENGL" ] && slop+=(-o)
-  [ "$VERBOSITY" -lt "3" ] && slop+=(-q)
+get_geometry_from_slop() {
+  slop="slop -f %g"
+  [ -n "$SLOP_BORDERSIZE" ] && slop="$slop -b $SLOP_BORDERSIZE"
+  [ -n "$SLOP_PADDING" ] && slop="$slop -p $SLOP_PADDING"
+  [ -n "$SLOP_TOLERANCE" ] && slop="$slop -t $SLOP_TOLERANCE"
+  [ -n "$SLOP_COLOR" ] && slop="$slop -c $SLOP_COLOR"
+  [ -n "$SLOP_SHADER" ] && slop="$slop -r $SLOP_SHADER"
+  [ -n "$SLOP_NODECORATIONS" ] && slop="$slop -n $SLOP_NODECORATIONS"
+  [ -n "$SLOP_HIGHLIGHT" ] && slop="$slop -l"
+  [ -n "$SLOP_NOKEYBOARD" ] && slop="$slop -k"
+  [ -n "$SLOP_NOOPENGL" ] && slop="$slop -o"
+  [ "$VERBOSITY" !=  "1" ] && slop="$slop -q"
 
-  slop_command=${slop[*]}
-  log "slop command: '$slop_command'" 2 true
+  slop_command=${slop}
+  log "slop command: '$slop_command'"
 
   slop_value=$($slop_command)
   [ "$?" -eq 1 ] && log_error "slop selection got canceled"
@@ -226,37 +170,41 @@ function get_geometry_from_slop() {
   GEOMETRY_STRING=$slop_value
 }
 
-function get_geometry_from_string() {
+get_geometry_from_string() {
   GEOMETRY_STRING=$GEOMETRY
 }
 
-function get_geometry_from_window_id() {
+get_geometry_from_window_id() {
   xdotool_output=$(xdotool getwindowgeometry --shell "$1" 2> /dev/null)
   [ $? = 1 ] && log_error "window with id $1 does not exist"
 
   eval "$xdotool_output"
 
-  [[ $X != "-"* ]] && X="+$X"
-  [[ $Y != "-"* ]] && Y="+$Y"
+  [ $X != "-"* ] && X="+$X"
+  [ $Y != "-"* ] && Y="+$Y"
 
   GEOMETRY_STRING="${WIDTH}x${HEIGHT}${X}${Y}"
 }
 
-function get_geometry_for_desktop() {
+get_geometry_for_desktop() {
   root_window_id=$(xdotool search --maxdepth 0 --class '')
   get_geometry_from_window_id "$root_window_id"
 }
 
-function parse_geometry_string() {
-  [[ $GEOMETRY_STRING =~ ([0-9]+)x([0-9]+)[+]?([-]?[0-9]+)[+]?([-]?[0-9]+) ]] 
+parse_geometry_string() {
+  y="${GEOMETRY_STRING##*+}"
 
-  width=${BASH_REMATCH[1]}
-  height=${BASH_REMATCH[2]}
-  x=${BASH_REMATCH[3]}
-  y=${BASH_REMATCH[4]}
+  GEOMETRY_STRING="${GEOMETRY_STRING%[+]$y}"
+  x="${GEOMETRY_STRING#*+}"
+
+  GEOMETRY_STRING="${GEOMETRY_STRING%[+]$x}"
+  height="${GEOMETRY_STRING#*x}"
+
+  width="${GEOMETRY_STRING%%x*}"
 
   [ -z "$width" ] || [ -z "$height" ] || [ -z "$x" ] || [ -z "$y" ] && {
     log_error "could not parse geometry string '$GEOMETRY_STRING'"
+    exit 0
   }
 
   get_geometry_for_desktop
@@ -283,38 +231,34 @@ function parse_geometry_string() {
     let height-=$((y + height - HEIGHT))
   }
 
-  log "parsed geometry: width=$width, height=$height, x=$x, y=$y" 2 true
+  log "parsed geometry: width=$width, height=$height, x=$x, y=$y"
 }
 
-function create_temporary_directory() {
+create_temporary_directory() {
   TEMP_DIRECTORY=$(mktemp -d)
   [ $? = 1 ] && log_error "could not create temporary directory"
-  log "created temporary directory $TEMP_DIRECTORY" 2 true
+  log "created temporary directory $TEMP_DIRECTORY"
 }
 
-function start_video_recording() {
-  ffmpeg=(ffmpeg)
-  ffmpeg+=(-f x11grab)
-  ffmpeg+=(-framerate "$FRAMERATE")
-  ffmpeg+=(-s "$width"x"$height")
-  ffmpeg+=(-i :0.0+"$x","$y")
-  ffmpeg+=(-preset ultrafast)
-  ffmpeg+=(-crf 0)
-
-  [ "$VERBOSITY" -lt "3" ] && ffmpeg+=(-loglevel "quiet")
-  [ -n "$TIMER" ] && [ "$TIMER" -gt 0 ] && ffmpeg+=(-t "$TIMER")
-
-  ffmpeg+=("$TEMP_DIRECTORY/recording.mkv")
-
+start_video_recording() {
+  ffmpeg="ffmpeg"
+  ffmpeg="$ffmpeg -f x11grab"
+  ffmpeg="$ffmpeg -framerate $FRAMERATE"
+  ffmpeg="$ffmpeg -s "$width"x$height"
+  ffmpeg="$ffmpeg -i :0.0+$x,$y"
+  ffmpeg="$ffmpeg -preset ultrafast"
+  ffmpeg="$ffmpeg -crf 0"
+  [ -n "$TIMER" ] && [ "$TIMER" -gt 0 ] && ffmpeg="$ffmpeg -t $TIMER"
+  ffmpeg="$ffmpeg $TEMP_DIRECTORY/recording.mkv"
   [ -n "$DELAY" ] && [ "$DELAY" -gt 0 ] && countdown_cli "$DELAY" "recording starts in"
+  [ "$VERBOSITY" != "1" ] && ffmpeg="$ffmpeg -hide_banner -loglevel panic"
 
-  ffmpeg_command=${ffmpeg[*]}
-  log "ffmpeg command: '$ffmpeg_command'" 2 true
+  log "ffmpeg command: '$ffmpeg'" #./giph2 -v -1 -f 30 -s -l -c 0.3\,0\,0.5\,0.3 -e mp4
   
-  "${ffmpeg[@]}" &
+  ${ffmpeg} & 
   FFMPEG_PID=$!
 
-  log "started recording video with ffmpeg" 1 true
+  log "started recording video with ffmpeg"
 
   if [ -n "$TIMER" ] && [ "$TIMER" -gt 0 ]; then
     countdown_cli "$TIMER" "recording stops in"
@@ -325,69 +269,84 @@ function start_video_recording() {
   wait $FFMPEG_PID
 
   [ $? = 1 ] && log_error "recording video with ffmpeg failed"
-  log "completed ffmpeg video recording" 1 true
+  log "completed ffmpeg video recording"
 }
 
-function countdown_cli() {
+countdown_cli() {
   seconds=$1
+  one="1"
   while [ "$seconds" -ge 0 ]; do
-    log "\r\033[K\033[0;36m$2:\033[0m $seconds" 0 false false true
+    log "\r\033[K\033[0;36m$2:\033[0m $seconds"
     if [ "$seconds" -gt 0 ]; then
       sleep 1
     else 
-      log "\r\033[K" 0 false false true
+      log "\r\033[K"
     fi
-    : $((seconds--))
+    seconds="$(( seconds - 1))"
   done
 }
 
-function stop_recording_handler_cli() {
+stop_recording_handler_cli() {
   log_info "stop recording with \033[1;36mctrl+c\033[0m or send INT SIGNAL to this process \033[1;36mkillall -int -g giph\033[0m" 
   trap '' INT
 }
 
-function encode_gif_ffmpeg() {
-  log "encoding gif using ffmpeg encoder" 1 true
-  ffmpeg_generate_palette=(ffmpeg -i "$TEMP_DIRECTORY/recording.mkv" -vf palettegen "$TEMP_DIRECTORY/palette.png")
-  [ "$VERBOSITY" -lt "3" ] && ffmpeg_generate_palette+=(-loglevel "quiet")
-  
-  log "generating color palette from recording" 2 true
-  "${ffmpeg_generate_palette[@]}"
+encode_ffmpeg() {
+  if [ -z "$ENCODING" ]; then
+    ENCODING=mp4
+  fi
+	if [ "$ENCODING" = gif ]; then
+		encode_gif_ffmpeg
+	elif [ "$ENCODING" = mp4 ]; then
+		encode_mp4_ffmpeg
+  fi	
+}
+
+encode_gif_ffmpeg() {
+  log "encoding gif using ffmpeg encoder"
+
+  log "generating color palette from recording"
+  ffmpeg_generate_palette="ffmpeg -i $TEMP_DIRECTORY/recording.mkv -vf palettegen $TEMP_DIRECTORY/palette.png"
+  [ "$VERBOSITY" = "1" ] && ${ffmpeg_generate_palette} || ${ffmpeg_generate_palette} >/dev/null 2>&1
   [ $? = 1 ] && log_error "could not generate color palette from video"
   
-  ffmpeg_encode_gif=(ffmpeg -i "$TEMP_DIRECTORY/recording.mkv" -i "$TEMP_DIRECTORY/palette.png" -filter_complex paletteuse -r "$FRAMERATE" "$TEMP_DIRECTORY/encoded.gif")
-  [ "$VERBOSITY" -lt "3" ] && ffmpeg_encode_gif+=(-loglevel "quiet")
-  
-  log "encoding gif using recorded video and generated palette" 2 true
-  "${ffmpeg_encode_gif[@]}"
+  log "encoding gif using recorded video and generated palette"  
+  ffmpeg_encode_gif="ffmpeg -i $TEMP_DIRECTORY/recording.mkv -i $TEMP_DIRECTORY/palette.png -filter_complex paletteuse -r $FRAMERATE $TEMP_DIRECTORY/encoded.gif"  
+  [ "$VERBOSITY" = "1" ] && ${ffmpeg_encode_gif} || ${ffmpeg_encode_gif} >/dev/null 2>&1
   [ $? = 1 ] && log_error "could not encode gif from video and color palette"
 }
 
-function deliver_final_gif() {
-  if [ -n "$OUTPUT_FILE" ]; then
-    mv "$TEMP_DIRECTORY/encoded.gif" "$OUTPUT_FILE" && {
-      log_success "final gif saved as \"$OUTPUT_FILE\""
-    }
-  else
-    cat "$TEMP_DIRECTORY/encoded.gif"
-  fi
+encode_mp4_ffmpeg() {
+	log "encoding mp4 using ffmpeg encoder"
+	ffmpeg_encode_mp4="ffmpeg -i $TEMP_DIRECTORY/recording.mkv -codec copy $TEMP_DIRECTORY/encoded.mp4"
+  [ "$VERBOSITY" = "1" ] && ${ffmpeg_encode_mp4} || ${ffmpeg_encode_mp4} >/dev/null 2>&1
 }
 
-function delete_temporary_directory() {
+deliver_final() {
+  if [ -n "$OUTPUT_FILE" ]; then
+    mv "$TEMP_DIRECTORY/encoded.$ENCODING" "$OUTPUT_FILE" && {
+      log_success "final $ENCODING saved as \"$OUTPUT_FILE\""
+	}
+  else
+    cat "$TEMP_DIRECTORY/encoded.$ENCODING"
+  fi	
+}
+
+delete_temporary_directory() {
   rm -r "$TEMP_DIRECTORY"
   [ $? = 1 ] && log_error "could not delete temporary directory"
   log "deleted temporary directory $TEMP_DIRECTORY" 2 true
 }
 
-function giph() {
+giph() {
   get_geometry
   create_temporary_directory
   start_video_recording
-  encode_gif_ffmpeg
-  deliver_final_gif
+  encode_ffmpeg
+  deliver_final
   delete_temporary_directory
   exit 0
 }
 
 giph
-wait
+-wait
