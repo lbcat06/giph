@@ -334,7 +334,7 @@ encode_webm_ffmpeg() {
 }
 
 encode_avi_ffmpeg() {
-  log "encoding webm using ffmpeg encoder"
+  log "encoding avi using ffmpeg encoder"
   ffmpeg_encode_avi="ffmpeg -i $TEMP_DIRECTORY/recording.mkv $TEMP_DIRECTORY/encoded.avi"
   [ "$VERBOSITY" = "1" ] && ${ffmpeg_encode_avi} || ${ffmpeg_encode_avi} >/dev/null 2>&1
   [ $? = 1 ] && log_error "could not encode avi from video"
