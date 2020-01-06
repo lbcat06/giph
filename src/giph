@@ -253,7 +253,7 @@ start_video_recording() {
   [ -n "$DELAY" ] && [ "$DELAY" -gt 0 ] && countdown_cli "$DELAY" "recording starts in"
   [ "$VERBOSITY" != "1" ] && ffmpeg="$ffmpeg -hide_banner -loglevel panic"
 
-  log "ffmpeg command: '$ffmpeg'" #./giph2 -v -1 -f 30 -s -l -c 0.3\,0\,0.5\,0.3 -e mp4
+  log "ffmpeg command: '$ffmpeg'"
   
   ${ffmpeg} & 
   FFMPEG_PID=$!
@@ -274,7 +274,6 @@ start_video_recording() {
 
 countdown_cli() {
   seconds=$1
-  one="1"
   while [ "$seconds" -ge 0 ]; do
     log "\r\033[K\033[0;36m$2:\033[0m $seconds"
     if [ "$seconds" -gt 0 ]; then
@@ -295,11 +294,11 @@ encode_ffmpeg() {
   if [ -z "$ENCODING" ]; then
     ENCODING=mp4
   fi
-	if [ "$ENCODING" = gif ]; then
-		encode_gif_ffmpeg
-	elif [ "$ENCODING" = mp4 ]; then
-		encode_mp4_ffmpeg
-  fi	
+  if [ "$ENCODING" = gif ]; then
+    encode_gif_ffmpeg
+  elif [ "$ENCODING" = mp4 ]; then
+    encode_mp4_ffmpeg
+  fi
 }
 
 encode_gif_ffmpeg() {
@@ -317,25 +316,26 @@ encode_gif_ffmpeg() {
 }
 
 encode_mp4_ffmpeg() {
-	log "encoding mp4 using ffmpeg encoder"
-	ffmpeg_encode_mp4="ffmpeg -i $TEMP_DIRECTORY/recording.mkv -codec copy $TEMP_DIRECTORY/encoded.mp4"
+  log "encoding mp4 using ffmpeg encoder"
+  ffmpeg_encode_mp4="ffmpeg -i $TEMP_DIRECTORY/recording.mkv -codec copy $TEMP_DIRECTORY/encoded.mp4"
   [ "$VERBOSITY" = "1" ] && ${ffmpeg_encode_mp4} || ${ffmpeg_encode_mp4} >/dev/null 2>&1
+  [ $? = 1 ] && log_error "could not encode mp4 from video"
 }
 
 deliver_final() {
   if [ -n "$OUTPUT_FILE" ]; then
     mv "$TEMP_DIRECTORY/encoded.$ENCODING" "$OUTPUT_FILE" && {
       log_success "final $ENCODING saved as \"$OUTPUT_FILE\""
-	}
+    }
   else
     cat "$TEMP_DIRECTORY/encoded.$ENCODING"
-  fi	
+  fi  
 }
 
 delete_temporary_directory() {
   rm -r "$TEMP_DIRECTORY"
   [ $? = 1 ] && log_error "could not delete temporary directory"
-  log "deleted temporary directory $TEMP_DIRECTORY" 2 true
+  log "deleted temporary directory $TEMP_DIRECTORY"
 }
 
 giph() {
