@@ -21,13 +21,6 @@ Records a 100x200 pixel rectangle in the top left corner of the screen. The reco
 
 ## Installation
 
-### Arch
-
-```bash
-$ yay -S giph
-```
-Or install [giph-git](https://aur.archlinux.org/packages/giph-git/) to get the latest development version.
-
 ### From source
 
 Make sure to install the following dependencies:
@@ -43,7 +36,7 @@ Optionally, install the following dependencies:
 Clone the giph repository:
 
 ```bash
-$ git clone https://github.com/phisch/giph.git
+$ git clone https://github.com/lbcat06/giph.git
 ```
 
 And finally install giph:
